@@ -97,3 +97,165 @@
 | **数据变更模式** | 手写 `/api/*` + 前端 `setTodos([...prev])` | `Server Action` + `revalidatePath` 服务端增量重验 |
 | **状态存储归属** | 客户端内存 Store (Redux, Zustand) | 服务端数据源 + URL Search Params |
 | **用户过渡反馈** | 手写 `isLoading` 本地布尔值 | React 19 `useTransition` 原生并发调度 |
+
+---
+
+## 五、RSC 架构黄金法则与实战辨析
+
+### 5.1 黄金法则（The Golden Rule of RSC）
+
+> [!IMPORTANT]
+> **“计算与过滤靠近数据源（Server），视图驱动交给 URL（Search Params），客户端只负责纯粹的交互调度（Leaf Components）。”**
+
+这一黄金法则指明了从传统 SPA 转向 RSC 架构时，数据与职责划分的核心边界。
+
+---
+
+### 5.2 深度辨析：为什么不能“一次性把所有任务拉到前端，然后在客户端做过滤”？
+
+在实际项目重构中，很多从传统 SPA 转过来的工程师常有一个直觉方案：
+> *“既然 Todo 数据量不大，为什么不在首屏把所有 todos 一次性拉出来，直接在前端写 `todos.filter(t => ...)`？这样切换 Tab 过滤时零网络延迟，岂不是更快？”*
+
+表面上看这减少了一次 1000ms 的网络延迟，但在 RSC 架构下，这属于典型的**反模式（Anti-Pattern）**——即**“披着 Next.js 外衣写传统 SPA”**。
+
+#### ❌ 反模式代码示例（SPA 残留思维）
+
+如果采用前端全量拉取并过滤，代码将被迫写成这样：
+
+```tsx
+// ❌ 错误示范：components/BadClientTodoList.tsx
+'use client'; // 1. 边界被迫上移！整个列表容器退化为客户端组件
+
+import { useState } from 'react';
+import { Todo } from '@/lib/types';
+
+export function BadClientTodoList({ initialTodos }: { initialTodos: Todo[] }) {
+  // 2. 重新引入客户端本地状态副本，产生“双重真理源”
+  const [todos, setTodos] = useState(initialTodos);
+  const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
+
+  // 3. 在客户端执行过滤计算
+  const filteredTodos = todos.filter((todo) => {
+    if (filter === 'active') return !todo.completed;
+    if (filter === 'completed') return todo.completed;
+    return true;
+  });
+
+  return (
+    <div>
+      {/* 4. 这里的 filter 仅存在于内存，页面一刷新立即重置为 'all'，无法分享 */}
+      <div className="filter-buttons">
+        <button onClick={() => setFilter('all')}>全部</button>
+        <button onClick={() => setFilter('active')}>未完成</button>
+      </div>
+
+      <ul>
+        {filteredTodos.map(todo => (
+          <li key={todo.id}>
+            {todo.title}
+            {/* 5. 灾难所在：当调用 Server Action 切换状态后，
+                   由于本地状态由 useState 托管，revalidatePath 下发的新数据
+                   不会自动同步到本组件的 todos 副本中！
+                   开发者被迫又得写 setTodos(prev => ...) 手工同步！ */}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+#### 🚨 弊端深度剖析：
+
+1. **客户端水合边界失守（Zero Bundle Size 破灭）：**
+   - 原本数据装配的容器应该是纯粹的 Server Component。为了在客户端做过滤，不得不把大面积的代码标注 `'use client'`，导致组件及其依赖全部被打入浏览器的 JS Bundle 中。
+2. **破坏“单一事实来源”，陷入缓存与状态不同步的泥潭：**
+   - 当用户调用 `toggleTodoAction(id)` 并触发 `revalidatePath('/')` 时，Next.js 服务端会重新生成最新的 Server Component 树。
+   - 但若客户端自己在 `useState` 里克隆了一份 `todos`，服务端的最新数据推流无法自动覆盖已经初始化的 `useState`（React 默认不会用更新的 props 覆盖已存在 state）。前端不得不重新写大量的 `useEffect` 或手动 `setTodos` 去对齐数据，重新掉入传统 SPA 状态混乱的深渊。
+3. **丢失“URL 驱动”能力：**
+   - 过滤条件仅存在于浏览器运行内存中。用户把当前“未完成任务”的页面链接发给同事，对方打开后看到的却是“全部任务”；点击浏览器“前进/后退”按钮，页面毫无反应。
+4. **扩展性极差（放弃流式分块与后端安全能力）：**
+   - 一旦业务扩展（如任务包含敏感备注、软删除归档、或者数据量膨胀到数百数千条），全量拉取将造成严重的带宽浪费与前端掉帧，完全失去利用数据库索引和 RSC 按需分块推流（Streaming）的能力。
+
+---
+
+### 5.3 遵循黄金法则的标准模式（本项目落地实现）
+
+本项目严格遵循黄金法则，架构清晰分层：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 用户
+    participant Filter as TodoFilter (Client)
+    participant URL as 浏览器 URL (?status=active)
+    participant Page as Page (Server Component)
+    participant DB as lib/db.ts (Server Only)
+    participant Flight as React Flight Payload
+    participant List as TodoList (DOM)
+
+    User->>Filter: 点击“未完成”按钮
+    Filter->>URL: router.replace('/?status=active', { scroll: false })
+    URL->>Page: 路由变化，resolve searchParams: { status: 'active' }
+    Note over Page: 触发 Suspense key={currentFilter} 重新悬挂
+    Page-->>List: 显示 TodoListSkeleton 骨架屏 (min-h 防塌陷)
+    Page->>DB: await getTodos('active') (直接在数据层过滤)
+    DB-->>Page: 返回精准的 active 过滤结果集
+    Page-->>Flight: 序列化为轻量 React Flight 流式补丁
+    Flight-->>List: 浏览器就地无缝热替换骨架屏 (滚动条保持原位)
+```
+
+#### ✅ 标准实现核心代码对照
+
+1. **视图驱动交由 URL（[components/TodoFilter.tsx](file:///C:/myGit/learn-rsc/components/TodoFilter.tsx)）：**
+   ```tsx
+   // 客户端仅负责把状态同步至 URL，无本地 useState 副本
+   const handleFilterChange = (status: TodoFilterType) => {
+     const params = new URLSearchParams(searchParams.toString());
+     status === 'all' ? params.delete('status') : params.set('status', status);
+     startTransition(() => {
+       router.replace(`/?${params.toString()}`, { scroll: false });
+     });
+   };
+   ```
+
+2. **计算与过滤靠近数据源（[app/page.tsx](file:///C:/myGit/learn-rsc/app/page.tsx) & [components/TodoList.tsx](file:///C:/myGit/learn-rsc/components/TodoList.tsx)）：**
+   ```tsx
+   // app/page.tsx (Server Component)
+   export default async function Page({ searchParams }: PageProps) {
+     const { status } = await searchParams;
+     const currentFilter = status || 'all';
+
+     return (
+       <div className="min-h-[260px]">
+         {/* key 驱动 Suspense 流式推流 */}
+         <Suspense key={currentFilter} fallback={<TodoListSkeleton />}>
+           <TodoList filter={currentFilter} />
+         </Suspense>
+       </div>
+     );
+   }
+
+   // components/TodoList.tsx (纯 Server Component，Zero Client JS)
+   export async function TodoList({ filter }: TodoListProps) {
+     // 直接在数据访问层过滤，杜绝下发无效字段与多余数据
+     const todos = await getTodos(filter);
+     return (
+       <ul>
+         {todos.map(todo => <TodoItem key={todo.id} todo={todo} />)}
+       </ul>
+     );
+   }
+   ```
+
+---
+
+### 5.4 架构决策指南：什么时候才允许在客户端做过滤？
+
+| 过滤场景 | 应该放在服务端还是客户端？ | 推荐技术手段 | 判定依据与说明 |
+| :--- | :---: | :--- | :--- |
+| **Tab 切换（全部/未完成/已完成）** | **服务端 (Server)** | `URL Search Params` + `revalidatePath` | 属于视图维度变更，必须支持 URL 链接分享、刷新保持与浏览器历史栈。 |
+| **数据分页 (Pagination)** | **服务端 (Server)** | `/?page=2` + `getTodos({ page, size })` | 避免全量拉取浪费流量，后端利用 DB `LIMIT/OFFSET`。 |
+| **即时输入高亮 (Instant Typing Highlight)** | **客户端 (Client)** | `useDeferredValue` / 纯 CSS 视觉高亮 | 仅为每个按键微交互提供即时视觉反馈，不改变底层业务数据流。 |
+| **复杂条件高级筛选表单** | **服务端 (Server)** | Form Submit / URL 序列化 | 避免客户端内存模型与服务端模型脱节。 |
+
