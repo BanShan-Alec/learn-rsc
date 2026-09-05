@@ -34,7 +34,8 @@ learn-rsc/
 │   ├── 01-mental-model-transformation.md # 核心心智模型解析与黄金法则
 │   ├── 02-implementation-log.md          # 详细实施过程记录与防滚动重置优化
 │   ├── 03-verification-and-acceptance.md # 验收标准与功能自检报告
-│   └── 04-revalidate-path-and-flight-protocol.md # revalidatePath 与 React Flight 协议深度剖析
+│   ├── 04-revalidate-path-and-flight-protocol.md # revalidatePath 与 React Flight 协议深度剖析
+│   └── 05-nextjs-architecture-and-best-practices.md # 目录结构与服务端架构最佳实践评估
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.ts
