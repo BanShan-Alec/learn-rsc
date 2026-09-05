@@ -31,9 +31,10 @@ learn-rsc/
 │   ├── layout.tsx              # 根布局
 │   └── page.tsx                # [主编排] 页面入口：Server Component + Suspense 骨架屏
 ├── docs/                       # 详细工程化落地过程与心智模型文档
-│   ├── 01-mental-model-transformation.md # 核心心智模型解析
-│   ├── 02-implementation-log.md          # 详细实施过程记录
-│   └── 03-verification-and-acceptance.md # 验收标准与功能自检
+│   ├── 01-mental-model-transformation.md # 核心心智模型解析与黄金法则
+│   ├── 02-implementation-log.md          # 详细实施过程记录与防滚动重置优化
+│   ├── 03-verification-and-acceptance.md # 验收标准与功能自检报告
+│   └── 04-revalidate-path-and-flight-protocol.md # revalidatePath 与 React Flight 协议深度剖析
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.ts
