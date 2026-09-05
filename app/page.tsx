@@ -103,9 +103,12 @@ export default async function Page({ searchParams }: PageProps) {
         <TodoFilter />
 
         {/* [阶段二] 异步服务端组件挂载点与 Suspense 骨架屏边界 */}
-        <Suspense key={currentFilter} fallback={<TodoListSkeleton />}>
-          <TodoList filter={currentFilter} />
-        </Suspense>
+        {/* 容器高度锁定 (min-h)：防止 Suspense 重新进入 pending 态时骨架屏与原列表高度差异过大造成页面高度塌陷，杜绝浏览器截断视口滚动条 */}
+        <div className="min-h-[260px]">
+          <Suspense key={currentFilter} fallback={<TodoListSkeleton />}>
+            <TodoList filter={currentFilter} />
+          </Suspense>
+        </div>
       </section>
 
       {/* 底部架构说明与调试引导 */}

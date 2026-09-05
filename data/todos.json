@@ -1,8 +1,14 @@
 [
   {
+    "id": "12839b4f-b28a-4879-afdb-dbc353f6852c",
+    "title": "你学会了吗",
+    "completed": false,
+    "createdAt": 1788602563034
+  },
+  {
     "id": "1",
     "title": "理解 React Server Components 架构基底与客户端最小边界",
-    "completed": true,
+    "completed": false,
     "createdAt": 1788594337419
   },
   {

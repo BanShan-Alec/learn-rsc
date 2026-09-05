@@ -1,5 +1,6 @@
 'use client';
 
+import { useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { TodoFilterType } from '@/lib/types';
 
@@ -28,6 +29,7 @@ const FILTERS: { label: string; value: TodoFilterType }[] = [
 export function TodoFilter() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
 
   // 当前激活状态直接从 URL 查询参数中派生，无本地 useState 镜像
   const currentStatus = (searchParams.get('status') as TodoFilterType) || 'all';
@@ -40,7 +42,15 @@ export function TodoFilter() {
       params.set('status', status);
     }
     const queryString = params.toString();
-    router.push(queryString ? `/?${queryString}` : '/');
+    const targetUrl = queryString ? `/?${queryString}` : '/';
+
+    // [RSC 核心机制 & 体验优化]
+    // 1. { scroll: false }：显式禁用 Next.js 路由跳转时默认滚回页面顶部的行为，保持当前视口滚动位置不变。
+    // 2. router.replace：同页内的参数过滤无需向浏览器历史栈推入新记录，避免用户需要多次点击“后退”才能离开。
+    // 3. startTransition：并发调度过渡，与 Suspense 骨架屏协同工作，UI 保持流畅非阻塞。
+    startTransition(() => {
+      router.replace(targetUrl, { scroll: false });
+    });
   };
 
   return (

@@ -107,3 +107,15 @@
   通过给 Suspense 赋予 `key={currentFilter}`，使得 URL 筛选条件切换时能够立刻重置该异步边界为 pending 态，即时渲染骨架屏。
 * **首屏流式响应体验：**
   页面 Header、TodoInput、TodoFilter 秒级到达浏览器立即可用，下方列表异步推流到达完成就地注水拼接。
+
+---
+
+## 步骤八：[体验进阶] 筛选切换防滚动条重置与防高度塌陷（方案 1+3 落地）
+
+* **痛点根源分析：**
+  1. Next.js 客户端路由器默认在路由变化时执行 `window.scrollTo(0, 0)` 将视口拉回顶部。
+  2. `<Suspense key={currentFilter}>` 重新悬挂时，若原列表高度大于骨架屏，页面总高度瞬间缩水产生高度塌陷（CLS），浏览器强制把超出新页面高度的滚动条截断归零。
+* **工程化落地实现：**
+  1. **方案一（`TodoFilter.tsx`）：** 将 `router.push` 升级为 `router.replace(targetUrl, { scroll: false })`，显式通知 Next.js 禁用自动置顶滚动，同时包裹在 React 19 `useTransition` 内实现非阻塞平滑调度。
+  2. **方案三（`app/page.tsx`）：** 为 `<Suspense>` 包裹层添加 `min-h-[260px]` 容器最小高度锁定，有效避免流式重验期间因骨架屏与真实列表的高差导致的剧烈跳动与滚动条被动截断。
+
